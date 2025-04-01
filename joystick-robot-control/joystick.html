@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Control</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        h1,
+        h3 {
+            font-size: 24px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            max-width: 800px;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .control-panel {
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        #positionDisplay {
+            margin-top: 10px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Robot Control</h1>
+
+    <!-- Joystick Readouts (for later use) -->
+    <div id="deviceInfo">No device connected</div>
+    <table id="joystickTable">
+        <thead>
+            <tr>
+                <th>INDEX</th>
+                <th>CONNECTED</th>
+                <th>MAPPING</th>
+                <th>TIMESTAMP</th>
+            </tr>
+        </thead>
+        <tbody id="deviceRow">
+            <tr>
+                <td>0</td>
+                <td id="connected">No</td>
+                <td id="mapping">n/a</td>
+                <td id="timestamp">0</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h3>Joystick Pose (For Reference)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th></th>
+                <th>B0</th>
+                <th>B1</th>
+                <th>B2</th>
+                <th>B3</th>
+                <th>B4</th>
+                <th>B5</th>
+                <th>B6</th>
+                <th>B7</th>
+                <th>B8</th>
+                <th>B9</th>
+                <th>B10</th>
+                <th>B11</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>n/a</td>
+                <td id="b0">0</td>
+                <td id="b1">0</td>
+                <td id="b2">0</td>
+                <td id="b3">0</td>
+                <td id="b4">0</td>
+                <td id="b5">0</td>
+                <td id="b6">0</td>
+                <td id="b7">0</td>
+                <td id="b8">0</td>
+                <td id="b9">0</td>
+                <td id="b10">0</td>
+                <td id="b11">0</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <table>
+        <thead>
+            <tr>
+                <th></th>
+                <th>AXIS 1</th>
+                <th>AXIS 2</th>
+                <th>AXIS 3</th>
+                <th>AXIS 4</th>
+                <th>AXIS 5</th>
+                <th>AXIS 6</th>
+                <th>AXIS 7</th>
+                <th>AXIS 8</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>n/a</td>
+                <td id="axis1">0.0000</td>
+                <td id="axis2">0.0000</td>
+                <td id="axis3">0.0000</td>
+                <td id="axis4">0.0000</td>
+                <td id="axis5">0.0000</td>
+                <td id="axis6">0.0000</td>
+                <td id="axis7">0.0000</td>
+                <td id="axis8">0.0000</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- Control Panel -->
+    <div class="control-panel">
+        <h3>Control Panel</h3>
+        <button id="resetBtn" onclick="sendCommand('reset')">Reset (Home and Center)</button>
+        <button id="cwBtn">Jog Clockwise</button>
+        <button id="ccwBtn">Jog Counterclockwise</button>
+        <div id="positionDisplay">Current Position: 0.0000°</div>
+    </div>
+
+    <script>
+        // Connect to the WebSocket server
+        const ws = new WebSocket('ws://localhost:8080');
+
+        ws.onopen = () => {
+            console.log('Connected to WebSocket server');
+        };
+
+        ws.onclose = () => {
+            console.log('Disconnected from WebSocket server');
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        // Constants for position tracking
+        const STEPS_PER_REV = 1600;
+        const BELT_REDUCTION = 6;
+        const MAX_TRAVEL_DEGREES = 300;
+        const MAX_TRAVEL_STEPS = STEPS_PER_REV * BELT_REDUCTION * (MAX_TRAVEL_DEGREES / 360.0);
+        const STEPS_PER_DEGREE = STEPS_PER_REV * BELT_REDUCTION / 360.0;
+        let currentPositionSteps = MAX_TRAVEL_STEPS / 2; // Start at center (150 degrees)
+
+        // Update button states based on position
+        function updateButtonStates() {
+            const cwBtn = document.getElementById('cwBtn');
+            const ccwBtn = document.getElementById('ccwBtn');
+
+            // Disable clockwise button if at max position
+            if (currentPositionSteps >= MAX_TRAVEL_STEPS) {
+                cwBtn.disabled = true;
+            } else {
+                cwBtn.disabled = false;
+            }
+
+            // Disable counterclockwise button if at min position
+            if (currentPositionSteps <= 0) {
+                ccwBtn.disabled = true;
+            } else {
+                ccwBtn.disabled = false;
+            }
+
+            // Update position display in degrees to 4 decimal places
+            const currentPositionDegrees = (currentPositionSteps / STEPS_PER_DEGREE).toFixed(4);
+            document.getElementById('positionDisplay').innerText = `Current Position: ${currentPositionDegrees}°`;
+        }
+
+        // Handle position updates from the server
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.position !== undefined) {
+                currentPositionSteps = data.position;
+                updateButtonStates();
+            }
+        };
+
+        // Send a command to the server
+        function sendCommand(command) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ command: command }));
+            }
+        }
+
+        // Jogging functionality
+        const cwBtn = document.getElementById('cwBtn');
+        const ccwBtn = document.getElementById('ccwBtn');
+
+        cwBtn.addEventListener('mousedown', () => {
+            sendCommand('jog_cw');
+        });
+
+        cwBtn.addEventListener('mouseup', () => {
+            sendCommand('stop_jog');
+        });
+
+        ccwBtn.addEventListener('mousedown', () => {
+            sendCommand('jog_ccw');
+        });
+
+        ccwBtn.addEventListener('mouseup', () => {
+            sendCommand('stop_jog');
+        });
+
+        // Joystick readouts (for later use)
+        window.addEventListener("gamepadconnected", (e) => {
+            console.log("Gamepad connected:", e.gamepad);
+            document.getElementById("deviceInfo").innerText = e.gamepad.id;
+            document.getElementById("connected").innerText = "Yes";
+            document.getElementById("mapping").innerText = e.gamepad.mapping || "n/a";
+            startPolling();
+        });
+
+        window.addEventListener("gamepaddisconnected", (e) => {
+            console.log("Gamepad disconnected:", e.gamepad);
+            document.getElementById("deviceInfo").innerText = "No device connected";
+            document.getElementById("connected").innerText = "No";
+            document.getElementById("mapping").innerText = "n/a";
+            document.getElementById("timestamp").innerText = "0";
+        });
+
+        let lastAxis6 = 0;
+        let lastB6 = 0;
+        function startPolling() {
+            function pollGamepad() {
+                const gamepads = navigator.getGamepads();
+                const gamepad = gamepads[0];
+
+                if (gamepad) {
+                    document.getElementById("timestamp").innerText = gamepad.timestamp.toFixed(0);
+
+                    for (let i = 0; i < 12; i++) {
+                        const buttonValue = gamepad.buttons[i] ? gamepad.buttons[i].value : 0;
+                        document.getElementById(`b${i}`).innerText = buttonValue.toFixed(0);
+                    }
+
+                    for (let i = 0; i < 8; i++) {
+                        const axisValue = gamepad.axes[i] || 0;
+                        document.getElementById(`axis${i + 1}`).innerText = axisValue.toFixed(4);
+                    }
+                }
+
+                requestAnimationFrame(pollGamepad);
+            }
+
+            pollGamepad();
+        }
+
+        // Initialize button states
+        updateButtonStates();
+    </script>
+</body>
+
+</html>
