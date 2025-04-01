@@ -6,53 +6,101 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Robot Control</title>
     <style>
+        :root {
+            --bg-color: #1c1f26;
+            --panel-bg: #2c2f36;
+            --highlight: #3aa1ff;
+            --accent: #1cc88a;
+            --text: #eaeaea;
+            --muted: #888;
+            --border: #444;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text);
         }
 
         h1,
         h3 {
-            font-size: 24px;
+            margin-bottom: 10px;
+            color: var(--highlight);
         }
 
         table {
             border-collapse: collapse;
             width: 100%;
-            max-width: 800px;
-            margin-top: 20px;
+            max-width: 100%;
+            margin: 20px 0;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
         }
 
         th,
         td {
-            border: 1px solid #ddd;
-            padding: 8px;
+            padding: 10px;
             text-align: center;
+            border-bottom: 1px solid var(--border);
         }
 
         th {
-            background-color: #f2f2f2;
+            background-color: #39414e;
+            color: var(--text);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
         }
 
         .control-panel {
+            background-color: var(--panel-bg);
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
             margin-top: 20px;
         }
 
         button {
-            padding: 10px 20px;
-            margin: 5px;
+            padding: 10px 16px;
+            margin: 6px;
             font-size: 16px;
+            background-color: var(--highlight);
+            color: white;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover:enabled {
+            background-color: #2d8de3;
         }
 
         button:disabled {
             cursor: not-allowed;
+            background-color: #555;
             opacity: 0.5;
         }
 
         #positionDisplay {
-            margin-top: 10px;
+            margin-top: 12px;
             font-size: 18px;
+            font-weight: 500;
+        }
+
+        #deviceInfo {
+            margin-bottom: 10px;
+            font-style: italic;
+            color: var(--muted);
         }
     </style>
 </head>
@@ -60,9 +108,9 @@
 <body>
     <h1>Robot Control</h1>
 
-    <!-- Joystick Readouts (for later use) -->
     <div id="deviceInfo">No device connected</div>
-    <table id="joystickTable">
+
+    <table>
         <thead>
             <tr>
                 <th>INDEX</th>
@@ -82,6 +130,7 @@
     </table>
 
     <h3>Joystick Pose (For Reference)</h3>
+
     <table>
         <thead>
             <tr>
@@ -148,7 +197,6 @@
         </tbody>
     </table>
 
-    <!-- Control Panel -->
     <div class="control-panel">
         <h3>Control Panel</h3>
         <button id="resetBtn" onclick="sendCommand('reset')">Reset (Home and Center)</button>
@@ -156,138 +204,139 @@
         <button id="ccwBtn">Jog Counterclockwise</button>
         <div id="positionDisplay">Current Position: 0.0000°</div>
     </div>
+</body>
 
-    <script>
-        // Connect to the WebSocket server
-        const ws = new WebSocket('ws://localhost:8080');
+<script>
+    // Connect to the WebSocket server
+    const ws = new WebSocket('ws://localhost:8080');
 
-        ws.onopen = () => {
-            console.log('Connected to WebSocket server');
-        };
+    ws.onopen = () => {
+        console.log('Connected to WebSocket server');
+    };
 
-        ws.onclose = () => {
-            console.log('Disconnected from WebSocket server');
-        };
+    ws.onclose = () => {
+        console.log('Disconnected from WebSocket server');
+    };
 
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
 
-        // Constants for position tracking
-        const STEPS_PER_REV = 1600;
-        const BELT_REDUCTION = 6;
-        const MAX_TRAVEL_DEGREES = 300;
-        const MAX_TRAVEL_STEPS = STEPS_PER_REV * BELT_REDUCTION * (MAX_TRAVEL_DEGREES / 360.0);
-        const STEPS_PER_DEGREE = STEPS_PER_REV * BELT_REDUCTION / 360.0;
-        let currentPositionSteps = MAX_TRAVEL_STEPS / 2; // Start at center (150 degrees)
+    // Constants for position tracking
+    const STEPS_PER_REV = 1600;
+    const BELT_REDUCTION = 6;
+    const MAX_TRAVEL_DEGREES = 300;
+    const MAX_TRAVEL_STEPS = STEPS_PER_REV * BELT_REDUCTION * (MAX_TRAVEL_DEGREES / 360.0);
+    const STEPS_PER_DEGREE = STEPS_PER_REV * BELT_REDUCTION / 360.0;
+    let currentPositionSteps = MAX_TRAVEL_STEPS / 2; // Start at center (150 degrees)
 
-        // Update button states based on position
-        function updateButtonStates() {
-            const cwBtn = document.getElementById('cwBtn');
-            const ccwBtn = document.getElementById('ccwBtn');
-
-            // Disable clockwise button if at max position
-            if (currentPositionSteps >= MAX_TRAVEL_STEPS) {
-                cwBtn.disabled = true;
-            } else {
-                cwBtn.disabled = false;
-            }
-
-            // Disable counterclockwise button if at min position
-            if (currentPositionSteps <= 0) {
-                ccwBtn.disabled = true;
-            } else {
-                ccwBtn.disabled = false;
-            }
-
-            // Update position display in degrees to 4 decimal places
-            const currentPositionDegrees = (currentPositionSteps / STEPS_PER_DEGREE).toFixed(4);
-            document.getElementById('positionDisplay').innerText = `Current Position: ${currentPositionDegrees}°`;
-        }
-
-        // Handle position updates from the server
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.position !== undefined) {
-                currentPositionSteps = data.position;
-                updateButtonStates();
-            }
-        };
-
-        // Send a command to the server
-        function sendCommand(command) {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ command: command }));
-            }
-        }
-
-        // Jogging functionality
+    // Update button states based on position
+    function updateButtonStates() {
         const cwBtn = document.getElementById('cwBtn');
         const ccwBtn = document.getElementById('ccwBtn');
 
-        cwBtn.addEventListener('mousedown', () => {
-            sendCommand('jog_cw');
-        });
-
-        cwBtn.addEventListener('mouseup', () => {
-            sendCommand('stop_jog');
-        });
-
-        ccwBtn.addEventListener('mousedown', () => {
-            sendCommand('jog_ccw');
-        });
-
-        ccwBtn.addEventListener('mouseup', () => {
-            sendCommand('stop_jog');
-        });
-
-        // Joystick readouts (for later use)
-        window.addEventListener("gamepadconnected", (e) => {
-            console.log("Gamepad connected:", e.gamepad);
-            document.getElementById("deviceInfo").innerText = e.gamepad.id;
-            document.getElementById("connected").innerText = "Yes";
-            document.getElementById("mapping").innerText = e.gamepad.mapping || "n/a";
-            startPolling();
-        });
-
-        window.addEventListener("gamepaddisconnected", (e) => {
-            console.log("Gamepad disconnected:", e.gamepad);
-            document.getElementById("deviceInfo").innerText = "No device connected";
-            document.getElementById("connected").innerText = "No";
-            document.getElementById("mapping").innerText = "n/a";
-            document.getElementById("timestamp").innerText = "0";
-        });
-
-        let lastAxis6 = 0;
-        let lastB6 = 0;
-        function startPolling() {
-            function pollGamepad() {
-                const gamepads = navigator.getGamepads();
-                const gamepad = gamepads[0];
-
-                if (gamepad) {
-                    document.getElementById("timestamp").innerText = gamepad.timestamp.toFixed(0);
-
-                    for (let i = 0; i < 12; i++) {
-                        const buttonValue = gamepad.buttons[i] ? gamepad.buttons[i].value : 0;
-                        document.getElementById(`b${i}`).innerText = buttonValue.toFixed(0);
-                    }
-
-                    for (let i = 0; i < 8; i++) {
-                        const axisValue = gamepad.axes[i] || 0;
-                        document.getElementById(`axis${i + 1}`).innerText = axisValue.toFixed(4);
-                    }
-                }
-
-                requestAnimationFrame(pollGamepad);
-            }
-
-            pollGamepad();
+        // Disable clockwise button if at max position
+        if (currentPositionSteps >= MAX_TRAVEL_STEPS) {
+            cwBtn.disabled = true;
+        } else {
+            cwBtn.disabled = false;
         }
 
-        // Initialize button states
-        updateButtonStates();
-    </script>
+        // Disable counterclockwise button if at min position
+        if (currentPositionSteps <= 0) {
+            ccwBtn.disabled = true;
+        } else {
+            ccwBtn.disabled = false;
+        }
+
+        // Update position display in degrees to 4 decimal places
+        const currentPositionDegrees = (currentPositionSteps / STEPS_PER_DEGREE).toFixed(4);
+        document.getElementById('positionDisplay').innerText = `Current Position: ${currentPositionDegrees}°`;
+    }
+
+    // Handle position updates from the server
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.position !== undefined) {
+            currentPositionSteps = data.position;
+            updateButtonStates();
+        }
+    };
+
+    // Send a command to the server
+    function sendCommand(command) {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ command: command }));
+        }
+    }
+
+    // Jogging functionality
+    const cwBtn = document.getElementById('cwBtn');
+    const ccwBtn = document.getElementById('ccwBtn');
+
+    cwBtn.addEventListener('mousedown', () => {
+        sendCommand('jog_cw');
+    });
+
+    cwBtn.addEventListener('mouseup', () => {
+        sendCommand('stop_jog');
+    });
+
+    ccwBtn.addEventListener('mousedown', () => {
+        sendCommand('jog_ccw');
+    });
+
+    ccwBtn.addEventListener('mouseup', () => {
+        sendCommand('stop_jog');
+    });
+
+    // Joystick readouts (for later use)
+    window.addEventListener("gamepadconnected", (e) => {
+        console.log("Gamepad connected:", e.gamepad);
+        document.getElementById("deviceInfo").innerText = e.gamepad.id;
+        document.getElementById("connected").innerText = "Yes";
+        document.getElementById("mapping").innerText = e.gamepad.mapping || "n/a";
+        startPolling();
+    });
+
+    window.addEventListener("gamepaddisconnected", (e) => {
+        console.log("Gamepad disconnected:", e.gamepad);
+        document.getElementById("deviceInfo").innerText = "No device connected";
+        document.getElementById("connected").innerText = "No";
+        document.getElementById("mapping").innerText = "n/a";
+        document.getElementById("timestamp").innerText = "0";
+    });
+
+    let lastAxis6 = 0;
+    let lastB6 = 0;
+    function startPolling() {
+        function pollGamepad() {
+            const gamepads = navigator.getGamepads();
+            const gamepad = gamepads[0];
+
+            if (gamepad) {
+                document.getElementById("timestamp").innerText = gamepad.timestamp.toFixed(0);
+
+                for (let i = 0; i < 12; i++) {
+                    const buttonValue = gamepad.buttons[i] ? gamepad.buttons[i].value : 0;
+                    document.getElementById(`b${i}`).innerText = buttonValue.toFixed(0);
+                }
+
+                for (let i = 0; i < 8; i++) {
+                    const axisValue = gamepad.axes[i] || 0;
+                    document.getElementById(`axis${i + 1}`).innerText = axisValue.toFixed(4);
+                }
+            }
+
+            requestAnimationFrame(pollGamepad);
+        }
+
+        pollGamepad();
+    }
+
+    // Initialize button states
+    updateButtonStates();
+</script>
 </body>
 
 </html>
