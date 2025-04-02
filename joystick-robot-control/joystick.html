@@ -82,7 +82,7 @@
         }
 
         button:hover:enabled {
-            background-color: #2d8de3;
+            background-color: #f3c443;
         }
 
         button:disabled {
@@ -310,6 +310,8 @@
     let lastAxis6 = 0;
     let lastB6 = 0;
     function startPolling() {
+        let lastJogCommand = 'stop_jog'; // Track current jog command sent
+
         function pollGamepad() {
             const gamepads = navigator.getGamepads();
             const gamepad = gamepads[0];
@@ -325,6 +327,27 @@
                 for (let i = 0; i < 8; i++) {
                     const axisValue = gamepad.axes[i] || 0;
                     document.getElementById(`axis${i + 1}`).innerText = axisValue.toFixed(4);
+                }
+
+                // 🕹️ --- Joystick Axis 6 Jogging Control ---
+                const axis6 = gamepad.axes[5]; // Axis 6 = index 5
+                const deadZone = 0.2;
+
+                if (axis6 > deadZone) {
+                    if (lastJogCommand !== 'jog_cw') {
+                        sendCommand('jog_cw');
+                        lastJogCommand = 'jog_cw';
+                    }
+                } else if (axis6 < -deadZone) {
+                    if (lastJogCommand !== 'jog_ccw') {
+                        sendCommand('jog_ccw');
+                        lastJogCommand = 'jog_ccw';
+                    }
+                } else {
+                    if (lastJogCommand !== 'stop_jog') {
+                        sendCommand('stop_jog');
+                        lastJogCommand = 'stop_jog';
+                    }
                 }
             }
 
