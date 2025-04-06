@@ -102,6 +102,17 @@
             font-style: italic;
             color: var(--muted);
         }
+
+        #speedDisplay {
+            margin-top: 12px;
+            font-size: 18px;
+            font-weight: 500;
+            color: var(--accent);
+        }
+
+        #testJoystickBtn {
+            background-color: var(--accent);
+        }
     </style>
 </head>
 
@@ -200,9 +211,11 @@
     <div class="control-panel">
         <h3>Control Panel</h3>
         <button id="resetBtn" onclick="sendCommand('reset')">Reset (Home and Center)</button>
+        <button id="testJoystickBtn">Test Joystick Access</button>
         <button id="cwBtn">Jog Clockwise</button>
         <button id="ccwBtn">Jog Counterclockwise</button>
         <div id="positionDisplay">Current Position: 0.0000°</div>
+        <div id="speedDisplay">Current Speed: 0%</div>
     </div>
 </body>
 
@@ -264,9 +277,10 @@
     };
 
     // Send a command to the server
-    function sendCommand(command) {
+    function sendCommand(command, params = {}) {
         if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ command: command }));
+            const message = { command: command, ...params };
+            ws.send(JSON.stringify(message));
         }
     }
 
@@ -290,13 +304,67 @@
         sendCommand('stop_jog');
     });
 
-    // Joystick readouts (for later use)
+    // Manual joystick test
+    document.getElementById('testJoystickBtn').addEventListener('click', testJoystick);
+
+    function testJoystick() {
+        try {
+            // First, ensure the browser supports the gamepad API
+            if (!navigator.getGamepads) {
+                document.getElementById('deviceInfo').innerText =
+                    'ERROR: Gamepad API not supported in this browser!';
+                return;
+            }
+
+            // Try to access the gamepads
+            const gamepads = navigator.getGamepads();
+            if (!gamepads) {
+                document.getElementById('deviceInfo').innerText =
+                    'ERROR: Cannot access gamepads. Try pressing a button on your controller.';
+                return;
+            }
+
+            // Check if any gamepad is connected
+            let found = false;
+            for (let i = 0; i < gamepads.length; i++) {
+                if (gamepads[i]) {
+                    document.getElementById('deviceInfo').innerText =
+                        `Found: ${gamepads[i].id} (index: ${i})`;
+                    document.getElementById('connected').innerText = "Yes";
+                    document.getElementById('mapping').innerText = gamepads[i].mapping || "n/a";
+                    document.getElementById('timestamp').innerText = gamepads[i].timestamp.toFixed(0);
+                    found = true;
+
+                    // If we weren't polling yet, start it
+                    if (!window.pollingStarted) {
+                        startPolling();
+                    }
+                    break;
+                }
+            }
+
+            if (!found) {
+                document.getElementById('deviceInfo').innerText =
+                    'No gamepad detected. Try pressing a button on your controller.';
+            }
+        } catch (e) {
+            document.getElementById('deviceInfo').innerText =
+                `ERROR: ${e.message}`;
+            console.error("Joystick test error:", e);
+        }
+    }
+
+    // Gamepad connection events
     window.addEventListener("gamepadconnected", (e) => {
         console.log("Gamepad connected:", e.gamepad);
-        document.getElementById("deviceInfo").innerText = e.gamepad.id;
+        document.getElementById("deviceInfo").innerText = `Connected: ${e.gamepad.id}`;
         document.getElementById("connected").innerText = "Yes";
         document.getElementById("mapping").innerText = e.gamepad.mapping || "n/a";
-        startPolling();
+
+        // Make sure we start polling
+        if (!window.pollingStarted) {
+            startPolling();
+        }
     });
 
     window.addEventListener("gamepaddisconnected", (e) => {
@@ -307,59 +375,107 @@
         document.getElementById("timestamp").innerText = "0";
     });
 
-    let lastAxis6 = 0;
-    let lastB6 = 0;
+    // Track if polling has been started
+    window.pollingStarted = false;
+
     function startPolling() {
-        let lastJogCommand = 'stop_jog'; // Track current jog command sent
+        window.pollingStarted = true;
+        console.log("Starting gamepad polling...");
 
         function pollGamepad() {
-            const gamepads = navigator.getGamepads();
-            const gamepad = gamepads[0];
+            // Access gamepads safely
+            let gamepad = null;
+            try {
+                const gamepads = navigator.getGamepads();
+                if (gamepads) {
+                    // Find the first connected gamepad
+                    for (let i = 0; i < gamepads.length; i++) {
+                        if (gamepads[i]) {
+                            gamepad = gamepads[i];
+                            break;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Error polling gamepad:", e);
+            }
 
             if (gamepad) {
                 document.getElementById("timestamp").innerText = gamepad.timestamp.toFixed(0);
 
-                for (let i = 0; i < 12; i++) {
+                // Update button values
+                for (let i = 0; i < Math.min(12, gamepad.buttons.length); i++) {
                     const buttonValue = gamepad.buttons[i] ? gamepad.buttons[i].value : 0;
                     document.getElementById(`b${i}`).innerText = buttonValue.toFixed(0);
                 }
 
-                for (let i = 0; i < 8; i++) {
+                // Update axis values
+                for (let i = 0; i < Math.min(8, gamepad.axes.length); i++) {
                     const axisValue = gamepad.axes[i] || 0;
                     document.getElementById(`axis${i + 1}`).innerText = axisValue.toFixed(4);
                 }
 
-                // 🕹️ --- Joystick Axis 6 Jogging Control ---
-                const axis6 = gamepad.axes[5]; // Axis 6 = index 5
+                // Variable speed control with axis 5 (index 4)
+                const axis5 = gamepad.axes[4]; // Axis 5 = index 4
                 const deadZone = 0.2;
 
-                if (axis6 > deadZone) {
-                    if (lastJogCommand !== 'jog_cw') {
-                        sendCommand('jog_cw');
-                        lastJogCommand = 'jog_cw';
+                // Update speed display for visualization in the interface
+                let speedPercentage = 0;
+                let direction = "none";
+
+                if (Math.abs(axis5) > deadZone) {
+                    if (axis5 > deadZone) {
+                        // Clockwise movement (positive axis)
+                        speedPercentage = Math.round(((axis5 - deadZone) / (1 - deadZone)) * 100);
+                        direction = "CW";
+                    } else if (axis5 < -deadZone) {
+                        // Counter-clockwise movement (negative axis)
+                        speedPercentage = Math.round(((Math.abs(axis5) - deadZone) / (1 - deadZone)) * 100);
+                        direction = "CCW";
                     }
-                } else if (axis6 < -deadZone) {
-                    if (lastJogCommand !== 'jog_ccw') {
+
+                    // Update the speed display
+                    document.getElementById('speedDisplay').innerText =
+                        `Current Speed: ${speedPercentage}% ${direction}`;
+                } else {
+                    document.getElementById('speedDisplay').innerText = `Current Speed: 0%`;
+                }
+
+                // For compatibility with current server setup, still send simple commands
+                // This can be enhanced later when server is updated
+                if (axis5 > deadZone) {
+                    if (window.lastJogCommand !== 'jog_cw') {
+                        sendCommand('jog_cw');
+                        window.lastJogCommand = 'jog_cw';
+                    }
+                } else if (axis5 < -deadZone) {
+                    if (window.lastJogCommand !== 'jog_ccw') {
                         sendCommand('jog_ccw');
-                        lastJogCommand = 'jog_ccw';
+                        window.lastJogCommand = 'jog_ccw';
                     }
                 } else {
-                    if (lastJogCommand !== 'stop_jog') {
+                    if (window.lastJogCommand !== 'stop_jog' && window.lastJogCommand !== undefined) {
                         sendCommand('stop_jog');
-                        lastJogCommand = 'stop_jog';
+                        window.lastJogCommand = 'stop_jog';
                     }
                 }
             }
 
+            // Continue polling
             requestAnimationFrame(pollGamepad);
         }
 
+        // Start the polling loop
         pollGamepad();
     }
 
     // Initialize button states
     updateButtonStates();
+
+    // Try to detect joystick automatically on page load
+    window.addEventListener('load', () => {
+        setTimeout(testJoystick, 1000); // Test after 1 second
+    });
 </script>
-</body>
 
 </html>
