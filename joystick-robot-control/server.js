@@ -33,6 +33,14 @@ parser.on('data', (data) => {
                 client.send(JSON.stringify({ position: position }));
             }
         });
+    } else if (data.startsWith('SPEED:')) {
+        const speed = parseInt(data.substring(6));
+        // Broadcast the speed to all connected WebSocket clients
+        wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({ speed: speed }));
+            }
+        });
     }
 });
 
@@ -64,21 +72,47 @@ wss.on('connection', (ws) => {
                 }
             });
         } else if (data.command === 'jog_cw') {
-            port.write('JOG_CW\n', (err) => {
-                if (err) {
-                    console.error('Error writing to serial port:', err.message);
-                } else {
-                    console.log('Sent jog clockwise command to Arduino');
-                }
-            });
+            // Check if speed parameter is provided
+            if (data.speed !== undefined) {
+                // Send jog command with speed parameter
+                port.write(`JOG_CW ${data.speed}\n`, (err) => {
+                    if (err) {
+                        console.error('Error writing to serial port:', err.message);
+                    } else {
+                        console.log(`Sent jog clockwise command with speed ${data.speed} to Arduino`);
+                    }
+                });
+            } else {
+                // Send regular jog command (use max speed)
+                port.write('JOG_CW\n', (err) => {
+                    if (err) {
+                        console.error('Error writing to serial port:', err.message);
+                    } else {
+                        console.log('Sent jog clockwise command to Arduino');
+                    }
+                });
+            }
         } else if (data.command === 'jog_ccw') {
-            port.write('JOG_CCW\n', (err) => {
-                if (err) {
-                    console.error('Error writing to serial port:', err.message);
-                } else {
-                    console.log('Sent jog counterclockwise command to Arduino');
-                }
-            });
+            // Check if speed parameter is provided
+            if (data.speed !== undefined) {
+                // Send jog command with speed parameter
+                port.write(`JOG_CCW ${data.speed}\n`, (err) => {
+                    if (err) {
+                        console.error('Error writing to serial port:', err.message);
+                    } else {
+                        console.log(`Sent jog counterclockwise command with speed ${data.speed} to Arduino`);
+                    }
+                });
+            } else {
+                // Send regular jog command (use max speed)
+                port.write('JOG_CCW\n', (err) => {
+                    if (err) {
+                        console.error('Error writing to serial port:', err.message);
+                    } else {
+                        console.log('Sent jog counterclockwise command to Arduino');
+                    }
+                });
+            }
         } else if (data.command === 'stop_jog') {
             port.write('STOP_JOG\n', (err) => {
                 if (err) {
